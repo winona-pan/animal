@@ -936,30 +936,46 @@ function ModeCard({ title, desc, tag, color, onClick }) {
 
 function QuizMode({ progress, setProgress, unfam, toggleUnfam }) {
   const [chapter, setChapter] = useState("全部");
+  const [onlyUnans, setOnlyUnans] = useState(false);
+  const [frozen, setFrozen] = useState([]);
   const [idx, setIdx] = useState(0);
   const [selected, setSelected] = useState(null);
   const [showExplain, setShowExplain] = useState(false);
-  
-  const questions = useMemo(() => 
+
+  const base = useMemo(() =>
     chapter === "全部" ? MC_QUESTIONS : MC_QUESTIONS.filter(q => q.set === chapter),
     [chapter]
   );
-  
-  useEffect(() => { setIdx(0); setSelected(null); setShowExplain(false); }, [chapter]);
-  
-  if (questions.length === 0) return null;
+  const questions = useMemo(() =>
+    onlyUnans ? base.filter(q => frozen.includes(q.id)) : base,
+    [base, onlyUnans, frozen]
+  );
+  const unansCount = base.filter(q => !(q.id in progress)).length;
+
+  // 進入練習或切換時，自動跳到第一題沒寫過的；開啟「只練沒寫過」時凍結當下未作答清單
+  useEffect(() => {
+    if (onlyUnans) {
+      const ids = base.filter(q => !(q.id in progress)).map(q => q.id);
+      setFrozen(ids); setIdx(0);
+    } else {
+      const f = base.findIndex(q => !(q.id in progress));
+      setIdx(f >= 0 ? f : 0);
+    }
+    setSelected(null); setShowExplain(false);
+  }, [chapter, onlyUnans]);
+
+  if (base.length === 0) return null;
   const q = questions[idx];
-  const wasAnswered = progress[q.id];
-  
+
   const choose = (i) => {
-    if (selected !== null) return;
+    if (selected !== null || !q) return;
     setSelected(i);
     setShowExplain(true);
     const newProgress = { ...progress, [q.id]: { selected: i, correct: i === q.ans } };
     setProgress(newProgress);
     saveProgress(newProgress);
   };
-  
+
   const next = () => {
     if (idx < questions.length - 1) {
       setIdx(idx + 1);
@@ -974,15 +990,34 @@ function QuizMode({ progress, setProgress, unfam, toggleUnfam }) {
       setShowExplain(false);
     }
   };
+  const jumpNextUnans = () => {
+    let n = -1;
+    for (let k = idx + 1; k < questions.length; k++) { if (!(questions[k].id in progress)) { n = k; break; } }
+    if (n === -1) { for (let k = 0; k < questions.length; k++) { if (!(questions[k].id in progress)) { n = k; break; } } }
+    if (n >= 0) { setIdx(n); setSelected(null); setShowExplain(false); }
+  };
   
   return (
     <main className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-4">
         {CHAPTERS.map(c => (
           <button key={c} onClick={() => setChapter(c)} className={`px-3 py-1.5 rounded-full text-xs tracking-wider transition-all ${chapter === c ? 'bg-forest text-cream' : 'bg-cream border border-sepia/30 text-sepia hover:bg-parchment'}`}>{c}</button>
         ))}
       </div>
-      
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <button onClick={() => setOnlyUnans(v => !v)} className={`px-4 py-1.5 rounded-full text-xs tracking-wider transition-all ${onlyUnans ? 'bg-moss text-cream' : 'bg-cream border border-moss/50 text-moss hover:bg-moss/10'}`}>
+          {onlyUnans ? '✓ 只練沒寫過' : '只練沒寫過'} ({unansCount})
+        </button>
+        <span className="text-xs text-sepia">{onlyUnans ? '已過濾掉做過的題目' : '自動從第一題沒寫過的開始'}</span>
+      </div>
+
+      {!q ? (
+        <div className="paper rounded-lg p-10 ornament-border text-center">
+          <div className="text-4xl mb-3 text-moss">✓</div>
+          <p className="font-display text-xl text-forest mb-2">這個範圍的題目都寫過了！</p>
+          <p className="text-sm text-sepia">可以切換章節、關閉「只練沒寫過」，或到複習區加強錯題與不熟的題目。</p>
+        </div>
+      ) : (
       <div className="paper rounded-lg p-6 sm:p-8 ornament-border fade-in" key={q.id}>
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-2">
@@ -1041,7 +1076,13 @@ function QuizMode({ progress, setProgress, unfam, toggleUnfam }) {
           </div>
           <button onClick={next} disabled={idx === questions.length - 1} className="px-4 py-2 text-sm text-sepia disabled:opacity-30 hover:text-forest">下一題 →</button>
         </div>
+        {unansCount > 0 && (
+          <div className="mt-4 text-center">
+            <button onClick={jumpNextUnans} className="text-xs text-moss hover:text-forest underline underline-offset-4">跳到下一題沒寫過的 →</button>
+          </div>
+        )}
       </div>
+      )}
     </main>
   );
 }
